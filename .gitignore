@@ -1,0 +1,26 @@
+# Large database files (Kraken2)
+*.k2d
+*.kmer_distrib
+*.tar.gz
+
+# Raw sequencing data (too large for GitHub)
+cancer_project/raw_data/
+
+# Large result files
+cancer_project/results/microbiome_output.txt
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.ipynb_checkpoints/
