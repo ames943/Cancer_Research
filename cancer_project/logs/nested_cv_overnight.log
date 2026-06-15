@@ -1,0 +1,15 @@
+[02:22:57] Loading data …
+  n=118, features=2813, R=64, NR=54
+  cohorts: {'cohort2': 40, 'cohort1': 39, 'cohort3': 39}
+  EN grid: 9, RF grid: 6, XGB grid (full): 8
+
+[02:22:57] Timing probe: running 3 outer folds with full grids …
+  3 folds in 34.6s  →  11.5s/fold  →  projected total: 0.38h
+  [OK] Runtime within budget — using full XGB grid (8 configs).
+  Inner fits per outer fold: EN=45, RF=30, XGB=40  total=115
+
+[02:23:31] Starting nested LOOCV (118 outer folds) …
+  fold   1/118  EN=0.032(NR)  RF=0.608(R)  XGB=0.894(R)  actual=R  elapsed=12s  ETA=1365s
+  fold  10/118  EN=0.373(NR)  RF=0.636(R)  XGB=0.774(R)  actual=NR  elapsed=116s  ETA=1252s
+/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 2 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
