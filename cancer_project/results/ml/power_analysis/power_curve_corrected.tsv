@@ -1,0 +1,8 @@
+n	power	ci_lower	ci_upper	n_reps	n_perms_internal	method
+39	0.43	0.3633	0.4993	200	199	dirichlet
+60	0.75	0.6857	0.8049	200	199	dirichlet
+80	0.935	0.892	0.9616	200	199	dirichlet
+100	0.985	0.9568	0.9949	200	199	dirichlet
+150	1.0	0.9812	1.0	200	199	dirichlet
+200	1.0	0.9812	1.0	200	199	dirichlet
+300	1.0	0.9812	1.0	200	199	dirichlet
