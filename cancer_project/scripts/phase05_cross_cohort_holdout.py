@@ -4,7 +4,7 @@ Phase 0.5: Cross-cohort holdout validation (no batch correction).
 
 Tests whether models trained on one or two cohorts generalise to a completely
 held-out cohort -- directly bypassing batch-correction ambiguities by never
-mixing cohorts at prediction time.
+mixing cohorts at prediction time
 
 Two experiment types:
   LOCO  Leave-One-Cohort-Out (3 splits):  train={1,2}→test=3, etc.
