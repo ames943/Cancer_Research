@@ -1,0 +1,30 @@
+
+=== RIAZ 2017 (mel_iatlas_riaz_nivolumab_2017) ===
+  Riaz: 73 samples, 20032 records (484 skipped no-gene)
+  Top 5 mutated genes: MUC16(36), TTN(35), PCLO(25), BRAF(23), OBSCN(21)
+  Pre-treatment samples (clinical): 51
+  Pre-treatment samples (mutations): 44
+  Final: 42 patients  R=10  NR=32
+
+=== LIU 2019 (mel_dfci_2019) ===
+  Liu: 144 samples, 87386 records (1370 skipped no-gene)
+  Top 5 mutated genes: TTN(92), MUC16(86), DNAH5(68), PCLO(65), LRP1B(57)
+  Final: 144 patients  R=55  NR=89
+
+=== HUGO 2016 (mel_ucla_2016) ===
+  Hugo: 37 samples, 25166 records (16 skipped no-gene)
+  Top 5 mutated genes: TTN(31), MUC16(29), MUC4(26), DNAH5(24), CSMD1(23)
+  Final: 37 patients  R=20  NR=17
+
+=== COMBINED ===
+Combined: 223 patients total
+  R=85  NR=138
+  Features: TMB + 63 gene binary flags
+  Studies: {'liu2019': np.int64(144), 'riaz2017': np.int64(42), 'hugo2016': np.int64(37)}
+
+TMB (mut/Mb) per study:
+  hugo2016: median=13.1  range=[2.8, 108.1]
+  liu2019: median=6.5  range=[0.2, 253.4]
+  riaz2017: median=4.7  range=[0.1, 67.4]
+
+DONE

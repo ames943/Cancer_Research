@@ -1,0 +1,27 @@
+Dataset: 223 patients, 65 features
+R=85, NR=138
+Studies: {'liu2019': np.int64(144), 'riaz2017': np.int64(42), 'hugo2016': np.int64(37)}
+
+--- LOOCV (combined n=223) ---
+  ElasticNet: AUC=0.5210  (2s)
+  RandomForest: AUC=0.4698  (74s)
+  XGBoost: AUC=0.4482  (18s)
+
+--- Leave-One-Study-Out ---
+  ElasticNet | hold-out hugo2016: AUC=0.6103 (n=37, R=20)
+  ElasticNet | hold-out liu2019: AUC=0.5783 (n=144, R=55)
+  ElasticNet | hold-out riaz2017: AUC=0.4359 (n=42, R=10)
+  ElasticNet mean cross-study AUC: 0.5415
+  RandomForest | hold-out hugo2016: AUC=0.6191 (n=37, R=20)
+  RandomForest | hold-out liu2019: AUC=0.5670 (n=144, R=55)
+  RandomForest | hold-out riaz2017: AUC=0.4469 (n=42, R=10)
+  RandomForest mean cross-study AUC: 0.5443
+  XGBoost | hold-out hugo2016: AUC=0.5765 (n=37, R=20)
+  XGBoost | hold-out liu2019: AUC=0.5759 (n=144, R=55)
+  XGBoost | hold-out riaz2017: AUC=0.3391 (n=42, R=10)
+  XGBoost mean cross-study AUC: 0.4971
+
+--- Permutation test (XGBoost LOOCV, N=200) ---
+  Observed XGBoost LOOCV AUC: 0.4482
+  20/200 perms done  null_mean=0.5069  p_so_far=0.900  ETA=46.7min
+  40/200 perms done  null_mean=0.5017  p_so_far=0.800  ETA=41.2min

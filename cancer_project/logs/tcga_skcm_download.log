@@ -1,0 +1,104 @@
+[21:36:26] ============================================================
+[21:36:26] TCGA-SKCM Tumor Feature Extraction Pipeline
+[21:36:26] ============================================================
+[21:36:26] Querying GDC for TCGA-SKCM masked somatic mutation files …
+[21:36:27]   472/472 file records fetched
+[21:36:27]   → 472 case-file associations (472 unique files)
+[21:36:27] File manifest saved: /Users/ameygarg/cancer_project/cancer_project/results/ml/tcga_skcm/gdc_file_manifest.tsv
+[21:36:27] 
+STEP 2/3: Downloading and parsing MAF files …
+[21:36:27]   Downloading 100 MAF files (batch 1/5) …
+[21:36:54]   batch 1/5 → 100 cases accumulated
+[21:36:55]   Downloading 100 MAF files (batch 2/5) …
+[21:37:25]   batch 2/5 → 199 cases accumulated
+[21:37:26]   Downloading 100 MAF files (batch 3/5) …
+[21:37:56]   batch 3/5 → 299 cases accumulated
+[21:37:57]   Downloading 100 MAF files (batch 4/5) …
+[21:38:27]   batch 4/5 → 398 cases accumulated
+[21:38:28]   Downloading 72 MAF files (batch 5/5) …
+[21:38:48]   batch 5/5 → 470 cases accumulated
+[21:38:49] Parsed mutations for 470 cases (467 with coding mutations)
+[21:38:49] 
+STEP 3: Computing tumor features …
+[21:38:49] Top 20 mutated genes (by patient frequency):
+[21:38:49]     TTN                    71.7% of patients
+[21:38:49]     MUC16                  66.2% of patients
+[21:38:49]     BRAF                   50.0% of patients
+[21:38:49]     DNAH5                  49.1% of patients
+[21:38:49]     PCLO                   44.5% of patients
+[21:38:49]     LRP1B                  38.3% of patients
+[21:38:49]     ADGRV1                 35.1% of patients
+[21:38:49]     ANK3                   33.6% of patients
+[21:38:49]     CSMD1                  33.2% of patients
+[21:38:49]     DNAH7                  33.0% of patients
+[21:38:49]     RP1                    32.1% of patients
+[21:38:49]     PKHD1L1                32.1% of patients
+[21:38:49]     XIRP2                  31.9% of patients
+[21:38:49]     MGAM                   31.9% of patients
+[21:38:49]     FAT4                   31.5% of patients
+[21:38:49]     HYDIN                  31.3% of patients
+[21:38:49]     DSCAM                  30.9% of patients
+[21:38:49]     APOB                   30.9% of patients
+[21:38:49]     FLG                    30.4% of patients
+[21:38:49]     USH2A                  30.0% of patients
+[21:38:49] Feature matrix saved: /Users/ameygarg/cancer_project/cancer_project/results/ml/tcga_skcm/tcga_skcm_tumor_features.tsv  (470 patients × 22 features)
+[21:38:49] 
+TMB summary (mut/Mb, coding nonsynonymous):
+[21:38:49]   median = 6.78
+[21:38:49]   mean   = 12.69
+[21:38:49]   range  = [0.00, 364.79]
+[21:38:49]   TMB>10 = 165 patients (35.1%)
+[21:38:49] 
+STEP 4: Downloading clinical data …
+[21:38:49] Downloading TCGA-SKCM clinical data …
+[21:38:51]   Retrieved 470 clinical records
+[21:38:51] Clinical data saved: /Users/ameygarg/cancer_project/cancer_project/results/ml/tcga_skcm/tcga_skcm_clinical.tsv
+[21:38:51] 
+============================================================
+[21:38:51] PATIENT OVERLAP ANALYSIS
+[21:38:51] ============================================================
+[21:38:51] TCGA-SKCM patients with mutation features: 470
+[21:38:51] Existing 3-cohort labeled patients: 118
+[21:38:51] Existing all-labeled patients: 354
+[21:38:51] 
+Our microbiome cohort IDs are SRR accessions (e.g., SRR5930493).
+[21:38:51] TCGA-SKCM IDs are TCGA case submitter IDs (e.g., TCGA-D3-A2J6).
+[21:38:51] These are entirely different patient cohorts — ZERO overlap expected.
+[21:38:51]   → Direct integration requires a study that collected BOTH
+[21:38:51]     pre-treatment gut microbiome samples AND tumor WES on the same patients.
+[21:38:51] 
+TCGA-SKCM clinical records with recorded immunotherapy: 0/470
+[21:38:51] 
+Conclusion for multi-omic integration:
+[21:38:51]   TCGA-SKCM provides tumor genomic context for melanoma generally,
+[21:38:51]   but cannot be directly joined to the gut microbiome response data.
+[21:38:51]   The feature matrix is still valuable for:
+[21:38:51]   (a) characterizing the melanoma mutation landscape (TMB distribution,
+[21:38:51]       BRAF/NRAS/NF1 frequencies, UV signature prevalence)
+[21:38:51]   (b) future work if a dataset with paired gut-microbiome + tumor WES exists.
+[21:38:51] 
+Top 20 gene mutation frequencies across TCGA-SKCM:
+[21:38:51]   Gene                  % patients   abs count
+[21:38:51]   TTN                        71.7%         337
+[21:38:51]   MUC16                      66.2%         311
+[21:38:51]   BRAF                       50.0%         235
+[21:38:51]   DNAH5                      49.1%         231
+[21:38:51]   PCLO                       44.5%         209
+[21:38:51]   LRP1B                      38.3%         180
+[21:38:51]   ADGRV1                     35.1%         165
+[21:38:51]   ANK3                       33.6%         158
+[21:38:51]   CSMD1                      33.2%         156
+[21:38:51]   DNAH7                      33.0%         155
+[21:38:51]   RP1                        32.1%         151
+[21:38:51]   PKHD1L1                    32.1%         151
+[21:38:51]   XIRP2                      31.9%         150
+[21:38:51]   MGAM                       31.9%         150
+[21:38:51]   FAT4                       31.5%         148
+[21:38:51]   HYDIN                      31.3%         147
+[21:38:51]   DSCAM                      30.9%         145
+[21:38:51]   APOB                       30.9%         145
+[21:38:51]   FLG                        30.4%         143
+[21:38:51]   USH2A                      30.0%         141
+[21:38:51] 
+All outputs in: /Users/ameygarg/cancer_project/cancer_project/results/ml/tcga_skcm
+[21:38:51] DONE
