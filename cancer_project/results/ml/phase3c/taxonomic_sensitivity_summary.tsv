@@ -1,0 +1,13 @@
+level	n_features	test	factor	R2	F_stat	p_value	n_groups	n_perms	dispersion_homogeneous
+phylum	65	PERMANOVA	batch	0.0569	3.47	0.0	3	999	
+phylum	65	PERMDISP	batch		4.8093	0.008	3	999	False
+phylum	65	PERMANOVA	response	0.0066	0.7708	0.6376	2	999	
+phylum	65	PERMDISP	response		0.0024	0.969	2	999	True
+genus	2813	PERMANOVA	batch	0.0768	4.7815	0.0	3	999	
+genus	2813	PERMDISP	batch		5.6285	0.002	3	999	False
+genus	2813	PERMANOVA	response	0.0068	0.7931	0.8468	2	999	
+genus	2813	PERMDISP	response		0.095	0.7618	2	999	True
+species	8051	PERMANOVA	batch	0.074	4.5964	0.0	3	999	
+species	8051	PERMDISP	batch		4.3617	0.015	3	999	False
+species	8051	PERMANOVA	response	0.008	0.9396	0.5836	2	999	
+species	8051	PERMDISP	response		1.3306	0.2673	2	999	True

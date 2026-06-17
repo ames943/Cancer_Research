@@ -1,0 +1,8 @@
+metric	value
+obs_genera_analyzed	48.0
+obs_inversions	31.0
+obs_inversion_rate	0.6458
+null_mean_inversion_rate	0.5878
+null_std_inversion_rate	0.0712
+permutation_p	0.213
+n_permutations	1000.0

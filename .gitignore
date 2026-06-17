@@ -3,11 +3,22 @@
 *.kmer_distrib
 *.tar.gz
 
-# Raw sequencing data (too large for GitHub)
-cancer_project/raw_data/
+# Kraken2 database components
+cancer_project/seqid2taxid.map
 
-# Large result files
+# Raw and intermediate sequencing results (too large for GitHub)
+cancer_project/raw_data/
+cancer_project/results/trimmed/
+cancer_project/results/kraken_outputs/
+cancer_project/results/kraken_reports/
+cancer_project/results/fastp/
+
+# Large/derived result files
 cancer_project/results/microbiome_output.txt
+
+# Logs and download artifacts
+cancer_project/logs/
+cancer_project/wget-log
 
 # macOS
 .DS_Store

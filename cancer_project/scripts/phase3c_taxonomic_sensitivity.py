@@ -1,134 +1,161 @@
 #!/usr/bin/env python3
 """
-Phase 3c: Taxonomic level sensitivity analysis.
+Phase 3c: Taxonomic-level sensitivity analysis.
 
-Builds CLR matrices at species (S) and phylum (P) level from the same
-118 Kraken2 reports used for the genus pipeline, then runs PERMANOVA
-(Aitchison distance, 999 perms) for response and batch factors at each level.
+Tests whether the batch >> response PERMANOVA pattern observed at genus level
+also holds at species and phylum level, using the same 118 samples and the
+same Kraken2 reports that produced the genus-level matrix.
 
-Compared against genus-level results from prior phases:
-  Genus  : batch R²=0.0768, response R²=0.0068 (ratio 11.3×)
+Steps:
+  1. Parse Kraken2 reports at species (rank S) and phylum (rank P) to build
+     CLR feature matrices, applying the same name-cleaning and pseudocount
+     logic as build_matrix.py.  Genus-level matrix loaded from existing file.
+  2. PERMANOVA (Aitchison distance, 999 perms) for batch and response at
+     each taxonomic level — identical implementation to batch_diagnostics_3cohort.py.
+  3. PERMDISP (Anderson 2006) for batch and response at each level.
+  4. Summary TSV: results/ml/phase3c/taxonomic_sensitivity_summary.tsv
+  5. Bar chart: results/ml/phase3c/taxonomic_sensitivity_figure.png
 
-Question: does the batch >> signal pattern hold at species and phylum level?
-
-Outputs: results/ml/taxonomic_sensitivity/
-  X_species_clr.tsv
-  X_phylum_clr.tsv
-  X_species_raw.tsv
-  X_phylum_raw.tsv
-  permanova_by_level.tsv
-  taxonomic_sensitivity_summary.md
+Usage:
+    cd cancer_project/
+    python3 scripts/phase3c_taxonomic_sensitivity.py
 """
 
-import os, math, glob, time
+import glob
+import math
+import os
+import time
+import warnings
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform
 
-REPORT_DIR  = "results/kraken_reports"
+warnings.filterwarnings("ignore")
+
+# ── paths ─────────────────────────────────────────────────────────────────────
+REPORT_GLOB = "results/kraken_reports/*_report.txt"
+CLR_GENUS   = "results/ml/n118_3cohort/X_genus_clr.tsv"
 LABELS_PATH = "metadata/response_labels_3cohort.tsv"
-OUT_DIR     = "results/ml/taxonomic_sensitivity"
+OUT_DIR     = "results/ml/phase3c"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-PSEUDOCOUNT    = 1e-6
-EXCLUDED_RANKS = {"S1", "S2"}  # sub-species — include only S
-N_PERMS        = 999
-EXCLUDED_GENERA = {"Homo"}
+N_PERMS = 999
+SEED    = 42
+PC      = 1e-6  # CLR pseudocount
 
-# Rank codes: P=phylum, G=genus, S=species
-TARGET_RANKS = {"S": "species", "P": "phylum"}
+EXCLUDED_PHYLA   = {"Chordata", "Vertebrata"}   # host phyla
+EXCLUDED_SPECIES = {"Homo"}                      # first word of species name
+
+# ── load reference sample list + labels ───────────────────────────────────────
+print(f"[{time.strftime('%H:%M:%S')}] Loading labels and genus CLR …", flush=True)
+genus_clr = pd.read_csv(CLR_GENUS, sep="\t", index_col="run_accession")
+labels    = pd.read_csv(LABELS_PATH, sep="\t").set_index("run_accession")
+
+SAMPLES  = genus_clr.index.tolist()   # 118 samples, canonical order
+response = labels.reindex(SAMPLES)["response"]
+batch    = pd.Series(
+    ["C1" if s.startswith("SRR5930")  else
+     "C2" if s.startswith("SRR11413") else "C3"
+     for s in SAMPLES],
+    index=SAMPLES,
+)
+print(f"  n={len(SAMPLES)}  response={response.value_counts().to_dict()}  "
+      f"batch={batch.value_counts().to_dict()}", flush=True)
 
 
-# ── Parse all Kraken2 reports at multiple ranks ────────────────────────────────
+# ── name parser ───────────────────────────────────────────────────────────────
 
-def parse_reports(rank_code):
+def parse_taxon_name(raw_field: str, rank: str):
+    """Return a clean taxon name for a Kraken2 name field at the given rank."""
+    stripped = raw_field.strip()
+    if not stripped:
+        return None
+    # Strip parenthetical author citations e.g. "Genus (ex Smith et al. 2020)"
+    if " (" in stripped:
+        stripped = stripped.split(" (")[0].strip()
+    words = stripped.split()
+    if not words:
+        return None
+
+    if rank == "P":   # phylum: first word
+        return words[0]
+
+    if rank == "G":   # genus: first word (Candidatus joined)
+        if stripped.startswith("Candidatus ") and len(words) >= 2:
+            return "Candidatus_" + words[1]
+        return words[0]
+
+    if rank == "S":   # species: full binomial (two words)
+        if stripped.startswith("Candidatus ") and len(words) >= 3:
+            return f"Candidatus_{words[1]}_{words[2]}"
+        if len(words) >= 2:
+            return f"{words[0]} {words[1]}"
+        return words[0]
+
+    return None
+
+
+# ── matrix builder ────────────────────────────────────────────────────────────
+
+def build_clr_matrix(rank: str, label: str) -> pd.DataFrame:
     """
-    Parse all 118 Kraken2 reports at the given rank_code (S or P).
-    Returns (samples dict, all_taxa set, excluded set).
+    Parse all Kraken2 reports for the given rank code and return a CLR
+    DataFrame aligned to the canonical 118-sample order (SAMPLES).
     """
-    report_files = sorted(glob.glob(f"{REPORT_DIR}/*_report.txt"))
-    if not report_files:
-        raise SystemExit(f"No Kraken reports found in {REPORT_DIR}")
-
-    samples   = {}
-    all_taxa  = set()
-    fixed     = {}
-    excluded  = set()
+    report_files = sorted(glob.glob(REPORT_GLOB))
+    sample_data: dict[str, dict[str, float]] = {}
+    all_taxa: set[str] = set()
 
     for fp in report_files:
-        sample    = os.path.basename(fp).replace("_report.txt", "")
-        taxa_data = {}
+        sample = os.path.basename(fp).replace("_report.txt", "")
+        if sample not in SAMPLES:
+            continue
 
+        taxa_counts: dict[str, float] = {}
         with open(fp) as fh:
             for line in fh:
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) < 6:
+                if len(parts) < 6 or parts[3] != rank:
                     continue
-                rk = parts[3]
-                if rk != rank_code:
+                pct  = float(parts[0].strip())
+                name = parse_taxon_name(parts[5], rank)
+                if name is None:
                     continue
-
-                pct          = float(parts[0].strip())
-                raw_name     = parts[5]
-                stripped     = raw_name.strip()
-                if not stripped:
+                first_word = name.split()[0].rstrip("_")
+                if rank == "P" and first_word in EXCLUDED_PHYLA:
                     continue
-
-                # Same name parsing as build_matrix.py
-                if stripped.startswith("Candidatus "):
-                    name = "Candidatus_" + stripped.split()[1]
-                elif " (" in stripped:
-                    name = stripped.split(" (")[0]
-                else:
-                    name = stripped
-
-                # For species: use full canonical name (two words max, collapse extra)
-                if rank_code == "S":
-                    tokens = name.split()
-                    name   = " ".join(tokens[:2]) if len(tokens) > 1 else tokens[0]
-
-                # Exclude host contamination (at phylum level this is unlikely but check)
-                if rank_code == "P" and name in EXCLUDED_GENERA:
-                    excluded.add(name)
+                if rank == "S" and first_word in EXCLUDED_SPECIES:
                     continue
-
-                taxa_data[name] = taxa_data.get(name, 0.0) + pct
+                taxa_counts[name] = taxa_counts.get(name, 0.0) + pct
                 all_taxa.add(name)
 
-        samples[sample] = taxa_data
+        sample_data[sample] = taxa_counts
 
-    return samples, all_taxa, excluded
-
-
-def build_matrix(samples, all_taxa, path_raw, path_clr):
     all_taxa_sorted = sorted(all_taxa)
-    labels          = pd.read_csv(LABELS_PATH, sep="\t")["run_accession"].tolist()
-    # Keep only samples that have response labels; use label order
-    present         = [s for s in labels if s in samples]
+    print(f"  [{label}] {len(sample_data)} samples, {len(all_taxa_sorted)} taxa", flush=True)
 
-    with open(path_raw, "w") as fr, open(path_clr, "w") as fc:
-        header = "run_accession\t" + "\t".join(all_taxa_sorted) + "\n"
-        fr.write(header); fc.write(header)
+    rows = []
+    for sample in SAMPLES:
+        taxa_c = sample_data.get(sample, {})
+        vals   = [taxa_c.get(t, 0.0) for t in all_taxa_sorted]
+        lv     = [math.log(v + PC) for v in vals]
+        mean_l = sum(lv) / len(lv)
+        rows.append([v - mean_l for v in lv])
 
-        for sample in present:
-            vals     = [samples[sample].get(t, 0.0) for t in all_taxa_sorted]
-            # raw
-            fr.write(sample + "\t" + "\t".join(str(v) for v in vals) + "\n")
-            # CLR
-            lv       = [math.log(v + PSEUDOCOUNT) for v in vals]
-            mean_lv  = sum(lv) / len(lv)
-            clr_vals = [v - mean_lv for v in lv]
-            fc.write(sample + "\t" + "\t".join(f"{v:.6f}" for v in clr_vals) + "\n")
-
-    return present, all_taxa_sorted
+    return pd.DataFrame(rows, index=SAMPLES, columns=all_taxa_sorted)
 
 
-# ── PERMANOVA (identical implementation to batch_diagnostics_3cohort.py) ──────
+# ── PERMANOVA (matches batch_diagnostics_3cohort.py exactly) ──────────────────
 
-def _ss_total(d2):
+def _ss_total(d2: np.ndarray) -> float:
     return float(np.sum(np.triu(d2, k=1))) / d2.shape[0]
 
-def _ss_within(d2, grp):
+
+def _ss_within(d2: np.ndarray, grp: np.ndarray) -> float:
     sw = 0.0
     for g in np.unique(grp):
         mask = grp == g
@@ -139,10 +166,11 @@ def _ss_within(d2, grp):
         sw += float(np.sum(np.triu(sub, k=1))) / n_g
     return sw
 
-def permanova(dist_mat, grouping, n_perms=N_PERMS, seed=42):
+
+def run_permanova(D: np.ndarray, grouping, n_perms: int = 999, seed: int = 42) -> dict:
     grp = np.asarray(grouping)
-    n   = dist_mat.shape[0]
-    d2  = dist_mat ** 2
+    n   = D.shape[0]
+    d2  = D ** 2
     q   = len(np.unique(grp))
 
     SS_T = _ss_total(d2)
@@ -154,112 +182,261 @@ def permanova(dist_mat, grouping, n_perms=N_PERMS, seed=42):
     rng    = np.random.default_rng(seed)
     perm_F = np.empty(n_perms)
     for i in range(n_perms):
-        gp        = rng.permutation(grp)
-        sw        = _ss_within(d2, gp)
-        sa        = SS_T - sw
-        perm_F[i] = (sa / (q - 1)) / (sw / (n - q))
+        gp     = rng.permutation(grp)
+        sw_p   = _ss_within(d2, gp)
+        sa_p   = SS_T - sw_p
+        perm_F[i] = (sa_p / (q - 1)) / (sw_p / (n - q))
 
     p_val = float((perm_F >= F).sum()) / n_perms
     return dict(R2=round(float(R2), 4), F_stat=round(float(F), 4),
                 p_value=round(p_val, 4), n_groups=q)
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── PERMDISP (matches statistical_foundations.py exactly) ────────────────────
 
-labels_df  = pd.read_csv(LABELS_PATH, sep="\t").set_index("run_accession")
-response_s = labels_df["response"]
+def run_permdisp(X: np.ndarray, grouping, n_perms: int = 999, seed: int = 42) -> dict:
+    """Anderson (2006) PERMDISP — Euclidean distances to group centroid."""
+    grp    = np.asarray(grouping)
+    groups = np.unique(grp)
+    q      = len(groups)
+    if q < 2:
+        return {"F_stat": np.nan, "p_value": np.nan, "n_groups": q,
+                "dispersion_homogeneous": None}
 
-all_results = []
+    def _d2centroid(X, grp):
+        d = np.zeros(len(grp))
+        for g in np.unique(grp):
+            m = grp == g
+            d[m] = np.linalg.norm(X[m] - X[m].mean(axis=0), axis=1)
+        return d
 
-# Prior genus results (from batch_diagnostics and Phase 1 paper context)
-prior_genus = [
-    dict(level="genus", factor="batch",    n_taxa=2813, R2=0.0768, F_stat=None, p_value=0.001,  n_groups=3, ratio_to_response=None),
-    dict(level="genus", factor="response", n_taxa=2813, R2=0.0068, F_stat=None, p_value=0.847,  n_groups=2, ratio_to_response=None),
+    def _anova_f(d, grp):
+        groups = np.unique(grp); N = len(d); k = len(groups)
+        gm  = d.mean()
+        ssb = sum(((d[grp == g]).mean() - gm) ** 2 * (grp == g).sum() for g in groups)
+        ssw = sum(((d[grp == g]) - (d[grp == g]).mean()).var() * (grp == g).sum()
+                  for g in groups)
+        return np.nan if ssw == 0 else (ssb / (k - 1)) / (ssw / (N - k))
+
+    d_obs = _d2centroid(X, grp)
+    F_obs = _anova_f(d_obs, grp)
+
+    rng     = np.random.default_rng(seed)
+    perm_Fs = [_anova_f(_d2centroid(X, rng.permutation(grp)), rng.permutation(grp))
+               for _ in range(n_perms)]
+    valid   = np.array([f for f in perm_Fs if not np.isnan(f)])
+    p_val   = float((valid >= F_obs).sum()) / len(valid) if len(valid) > 0 else np.nan
+
+    group_disp = {str(g): round(float(d_obs[grp == g].mean()), 4) for g in groups}
+    return {
+        "F_stat":                round(float(F_obs), 4) if not np.isnan(F_obs) else np.nan,
+        "p_value":               round(p_val, 4),
+        "n_groups":              q,
+        "group_dispersions":     str(group_disp),
+        "dispersion_homogeneous": bool(p_val >= 0.05) if not np.isnan(p_val) else None,
+    }
+
+
+# ── build species and phylum matrices ─────────────────────────────────────────
+
+print(f"\n[{time.strftime('%H:%M:%S')}] Building phylum CLR matrix …", flush=True)
+phylum_clr = build_clr_matrix("P", "phylum")
+phylum_clr.to_csv(f"{OUT_DIR}/X_phylum_clr.tsv", sep="\t", index_label="run_accession")
+
+print(f"[{time.strftime('%H:%M:%S')}] Building species CLR matrix …", flush=True)
+species_clr = build_clr_matrix("S", "species")
+species_clr.to_csv(f"{OUT_DIR}/X_species_clr.tsv", sep="\t", index_label="run_accession")
+
+# ── run PERMANOVA + PERMDISP at each level ────────────────────────────────────
+
+levels = [
+    ("phylum",  phylum_clr),
+    ("genus",   genus_clr),
+    ("species", species_clr),
 ]
-all_results.extend(prior_genus)
 
-for rank_code, rank_name in [("S", "species"), ("P", "phylum")]:
-    print(f"\n[{time.strftime('%H:%M:%S')}] Parsing Kraken2 reports at {rank_name} (rank={rank_code}) …", flush=True)
-    samples, all_taxa, excluded = parse_reports(rank_code)
-    print(f"  Samples parsed: {len(samples)}, {rank_name}: {len(all_taxa)}", flush=True)
+all_rows = []
 
-    path_raw = f"{OUT_DIR}/X_{rank_name}_raw.tsv"
-    path_clr = f"{OUT_DIR}/X_{rank_name}_clr.tsv"
-    present, all_taxa_sorted = build_matrix(samples, all_taxa, path_raw, path_clr)
-    print(f"  Saved: {path_raw}, {path_clr}  (n={len(present)})", flush=True)
+for level_name, clr_df in levels:
+    n_feat = clr_df.shape[1]
+    X      = clr_df.values.astype(float)
+    print(f"\n[{time.strftime('%H:%M:%S')}] === {level_name.upper()} "
+          f"(n_features={n_feat}) ===", flush=True)
 
-    clr_df = pd.read_csv(path_clr, sep="\t", index_col="run_accession")
-    resp   = response_s.reindex(clr_df.index).dropna()
-    clr_df = clr_df.loc[resp.index]
+    print(f"  Computing Aitchison distance matrix …", flush=True)
+    D = squareform(pdist(X, metric="euclidean"))
 
-    batch  = pd.Series(
-        ["cohort1" if a.startswith("SRR5930") else
-         "cohort2" if a.startswith("SRR11413") else "cohort3"
-         for a in clr_df.index],
-        index=clr_df.index,
-    )
+    for factor_name, grouping in [("batch", batch.values), ("response", response.values)]:
+        seed_off = 0 if factor_name == "batch" else 1
 
-    print(f"  Computing Aitchison distances (n={len(clr_df)}, {clr_df.shape[1]} {rank_name}) …", flush=True)
-    D = squareform(pdist(clr_df.values.astype(float), metric="euclidean"))
+        # PERMANOVA
+        t0 = time.time()
+        print(f"  PERMANOVA({factor_name}, {N_PERMS} perms) …", flush=True)
+        pr = run_permanova(D, grouping, n_perms=N_PERMS, seed=SEED + seed_off)
+        sig = ("***" if pr["p_value"] < 0.001 else "**"  if pr["p_value"] < 0.01 else
+               "*"   if pr["p_value"] < 0.05  else "ns")
+        print(f"    R²={pr['R2']:.4f}  F={pr['F_stat']:.4f}  "
+              f"p={pr['p_value']:.4f} {sig}  ({time.time()-t0:.1f}s)", flush=True)
 
-    for factor_name, grouping in [("batch", batch.values), ("response", resp.values)]:
-        print(f"  PERMANOVA — {factor_name} ({N_PERMS} perms) …", flush=True)
-        res = permanova(D, grouping, seed=42 if factor_name == "batch" else 43)
-        all_results.append(dict(
-            level=rank_name, factor=factor_name,
-            n_taxa=clr_df.shape[1], **res,
-            ratio_to_response=None,
-        ))
-        print(f"    R²={res['R2']:.4f}  p={res['p_value']:.4f}  F={res['F_stat']:.4f}", flush=True)
+        all_rows.append({
+            "level":      level_name,
+            "n_features": n_feat,
+            "test":       "PERMANOVA",
+            "factor":     factor_name,
+            "R2":         pr["R2"],
+            "F_stat":     pr["F_stat"],
+            "p_value":    pr["p_value"],
+            "n_groups":   pr["n_groups"],
+            "n_perms":    N_PERMS,
+            "dispersion_homogeneous": "",
+        })
 
-# Compute batch:response ratio per level
-result_df = pd.DataFrame(all_results)
-for lvl in result_df["level"].unique():
-    mask_b = (result_df["level"] == lvl) & (result_df["factor"] == "batch")
-    mask_r = (result_df["level"] == lvl) & (result_df["factor"] == "response")
-    if mask_b.any() and mask_r.any():
-        r2_b = result_df.loc[mask_b, "R2"].iloc[0]
-        r2_r = result_df.loc[mask_r, "R2"].iloc[0]
-        ratio = round(r2_b / r2_r, 1) if r2_r > 0 else float("inf")
-        result_df.loc[mask_b, "ratio_to_response"] = ratio
-        result_df.loc[mask_r, "ratio_to_response"] = ratio
+        # PERMDISP
+        t0 = time.time()
+        print(f"  PERMDISP({factor_name}, {N_PERMS} perms) …", flush=True)
+        dr = run_permdisp(X, grouping, n_perms=N_PERMS, seed=SEED + seed_off + 10)
+        sig_d = ("***" if dr["p_value"] < 0.001 else "**"  if dr["p_value"] < 0.01 else
+                 "*"   if dr["p_value"] < 0.05  else "ns")
+        hom = "homogeneous" if dr["dispersion_homogeneous"] else "HETEROGENEOUS"
+        print(f"    F={dr['F_stat']}  p={dr['p_value']:.4f} {sig_d}  "
+              f"→ {hom}  ({time.time()-t0:.1f}s)", flush=True)
 
-result_df.to_csv(f"{OUT_DIR}/permanova_by_level.tsv", sep="\t", index=False)
-print(f"\nSaved: {OUT_DIR}/permanova_by_level.tsv", flush=True)
+        all_rows.append({
+            "level":      level_name,
+            "n_features": n_feat,
+            "test":       "PERMDISP",
+            "factor":     factor_name,
+            "R2":         "",
+            "F_stat":     dr["F_stat"],
+            "p_value":    dr["p_value"],
+            "n_groups":   dr["n_groups"],
+            "n_perms":    N_PERMS,
+            "dispersion_homogeneous": dr["dispersion_homogeneous"],
+        })
 
-# ── Summary markdown ───────────────────────────────────────────────────────────
+# ── save summary TSV ──────────────────────────────────────────────────────────
 
-lines = ["# Phase 3c: Taxonomic Level Sensitivity\n",
-         "PERMANOVA (Aitchison distance, 999 perms) — batch vs. response R² at each taxonomic level\n",
-         "Genus-level values from prior batch_diagnostics runs.\n"]
+summary_df = pd.DataFrame(all_rows)
+out_tsv    = f"{OUT_DIR}/taxonomic_sensitivity_summary.tsv"
+summary_df.to_csv(out_tsv, sep="\t", index=False)
+print(f"\n[{time.strftime('%H:%M:%S')}] Saved: {out_tsv}", flush=True)
 
-lines.append(f"{'Level':<10} {'Factor':<10} {'n_taxa':>7} {'R²':>8} {'p':>8} {'batch:resp ratio':>16}")
-lines.append("-" * 65)
+# ── bar chart ─────────────────────────────────────────────────────────────────
 
-for lvl in ["phylum", "genus", "species"]:
+perm_df   = summary_df[summary_df["test"] == "PERMANOVA"].copy()
+level_ord = ["phylum", "genus", "species"]
+
+batch_r2 = {r["level"]: r["R2"]      for _, r in perm_df[perm_df["factor"] == "batch"].iterrows()}
+resp_r2  = {r["level"]: r["R2"]      for _, r in perm_df[perm_df["factor"] == "response"].iterrows()}
+batch_p  = {r["level"]: r["p_value"] for _, r in perm_df[perm_df["factor"] == "batch"].iterrows()}
+resp_p   = {r["level"]: r["p_value"] for _, r in perm_df[perm_df["factor"] == "response"].iterrows()}
+
+x = np.arange(len(level_ord))
+w = 0.35
+
+fig, ax = plt.subplots(figsize=(8, 5))
+bars_b = ax.bar(x - w/2, [batch_r2.get(l, 0) for l in level_ord], w,
+                color="#C62828", label="Batch (cohort)", alpha=0.88, edgecolor="white")
+bars_r = ax.bar(x + w/2, [resp_r2.get(l,  0) for l in level_ord], w,
+                color="#1565C0", label="Response (R/NR)", alpha=0.88, edgecolor="white")
+
+def _annotate_bars(bars, p_dict, levels):
+    for bar, lvl in zip(bars, levels):
+        p   = p_dict.get(lvl, 1.0)
+        sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.001, sig,
+                ha="center", va="bottom", fontsize=9, color="black")
+
+_annotate_bars(bars_b, batch_p,  level_ord)
+_annotate_bars(bars_r, resp_p,   level_ord)
+
+# Batch:response ratio labels above bar pairs
+for i, lvl in enumerate(level_ord):
+    bv = batch_r2.get(lvl, 0)
+    rv = resp_r2.get(lvl,  0)
+    if rv > 0:
+        ratio = bv / rv
+        ypos  = max(bv, rv) + 0.007
+        ax.text(i, ypos, f"{ratio:.0f}×", ha="center", fontsize=8, color="#444",
+                fontstyle="italic")
+
+ax.set_xticks(x)
+ax.set_xticklabels([l.capitalize() for l in level_ord], fontsize=12)
+ax.set_ylabel("PERMANOVA R² (Aitchison distance)", fontsize=11)
+ax.set_title(
+    "Batch vs. Response Variance Explained — Taxonomic Level Sensitivity\n"
+    "n=118, 3 cohorts, 999 permutations  (italic = batch÷response ratio)",
+    fontsize=10)
+ax.legend(fontsize=10, framealpha=0.85)
+ax.grid(axis="y", alpha=0.25)
+ax.set_ylim(0, max(max(batch_r2.values()), 0.12) * 1.25)
+fig.tight_layout()
+
+out_fig = f"{OUT_DIR}/taxonomic_sensitivity_figure.png"
+fig.savefig(out_fig, dpi=150, bbox_inches="tight")
+plt.close(fig)
+print(f"Saved: {out_fig}", flush=True)
+
+# ── plain-language summary ────────────────────────────────────────────────────
+
+print(f"\n[{time.strftime('%H:%M:%S')}] ══ PHASE 3C SUMMARY ════════════════════════════════\n",
+      flush=True)
+
+perm_only = summary_df[summary_df["test"] == "PERMANOVA"].copy()
+disp_only = summary_df[summary_df["test"] == "PERMDISP"].copy()
+
+print("PERMANOVA (Aitchison distance, 999 perms, n=118):", flush=True)
+print(f"  {'Level':<10} {'Factor':<10} {'n_feat':>7}  {'R²':>7} {'F':>8} "
+      f"{'p-value':>10}  sig", flush=True)
+print("  " + "-" * 60, flush=True)
+for lvl in level_ord:
     for fac in ["batch", "response"]:
-        row = result_df[(result_df["level"] == lvl) & (result_df["factor"] == fac)]
-        if len(row) == 0:
+        row = perm_only[(perm_only["level"] == lvl) & (perm_only["factor"] == fac)]
+        if row.empty:
             continue
         r = row.iloc[0]
-        sig = " ***" if r["p_value"] < 0.001 else " **" if r["p_value"] < 0.01 else \
-              " *"   if r["p_value"] < 0.05  else " ns"
-        ratio_str = f"{r['ratio_to_response']:.1f}×" if fac == "batch" and r["ratio_to_response"] is not None else "—"
-        lines.append(f"{lvl:<10} {fac:<10} {int(r['n_taxa']) if r['n_taxa'] == r['n_taxa'] else '?':>7} "
-                     f"{r['R2']:>8.4f} {r['p_value']:>8.4f}{sig}  {ratio_str:>12}")
+        sig = ("***" if r["p_value"] < 0.001 else "**" if r["p_value"] < 0.01 else
+               "*"   if r["p_value"] < 0.05  else "ns")
+        print(f"  {lvl:<10} {fac:<10} {int(r['n_features']):>7}  {r['R2']:>7.4f} "
+              f"{r['F_stat']:>8.4f} {r['p_value']:>10.4f}  {sig}", flush=True)
+    b  = perm_only[(perm_only["level"] == lvl) & (perm_only["factor"] == "batch")]
+    rr = perm_only[(perm_only["level"] == lvl) & (perm_only["factor"] == "response")]
+    if not b.empty and not rr.empty and float(rr.iloc[0]["R2"]) > 0:
+        ratio = float(b.iloc[0]["R2"]) / float(rr.iloc[0]["R2"])
+        print(f"  {'':10} {'→ batch:resp':10}  {'ratio =':>7} {ratio:>7.1f}×", flush=True)
+    print("", flush=True)
 
-lines.append("")
-lines.append("## Interpretation")
-lines.append("")
-lines.append("If batch R² >> response R² at all three levels, the fundamental problem")
-lines.append("(batch dominates signal regardless of taxonomic resolution) is not an artifact")
-lines.append("of genus-level aggregation — it reflects a genuine platform/protocol confound.")
-lines.append("Species level may show LARGER batch effects (more granular = more platform noise)")
-lines.append("while phylum level may show SMALLER batch effects (more aggregated = less noise).")
-lines.append("Either way, if response R² stays near genus level (0.007), the null finding is robust.")
+print("PERMDISP (dispersion homogeneity):", flush=True)
+print(f"  {'Level':<10} {'Factor':<10} {'F':>8} {'p-value':>10}  Homogeneous?", flush=True)
+print("  " + "-" * 55, flush=True)
+for lvl in level_ord:
+    for fac in ["batch", "response"]:
+        row = disp_only[(disp_only["level"] == lvl) & (disp_only["factor"] == fac)]
+        if row.empty:
+            continue
+        r   = row.iloc[0]
+        hom = "Yes" if r["dispersion_homogeneous"] else "NO (heterogeneous)"
+        print(f"  {lvl:<10} {fac:<10} {r['F_stat']:>8} {r['p_value']:>10.4f}  {hom}",
+              flush=True)
+print("", flush=True)
 
-with open(f"{OUT_DIR}/taxonomic_sensitivity_summary.md", "w") as fh:
-    fh.write("\n".join(lines) + "\n")
+print("── KEY FINDING ──────────────────────────────────────────────────────────", flush=True)
+levels_batch_wins = []
+for lvl in level_ord:
+    b  = perm_only[(perm_only["level"] == lvl) & (perm_only["factor"] == "batch")]
+    rr = perm_only[(perm_only["level"] == lvl) & (perm_only["factor"] == "response")]
+    if not b.empty and not rr.empty:
+        levels_batch_wins.append(float(b.iloc[0]["R2"]) > float(rr.iloc[0]["R2"]))
 
-print(f"\n[{time.strftime('%H:%M:%S')}] Phase 3c complete. Outputs in {OUT_DIR}/", flush=True)
-print(result_df[["level","factor","n_taxa","R2","p_value","ratio_to_response"]].to_string(index=False), flush=True)
+if all(levels_batch_wins):
+    print("  Batch R² > Response R² at ALL three taxonomic levels.", flush=True)
+    print("  The batch >> response dominance is NOT genus-specific — it is a", flush=True)
+    print("  structural property of this multi-cohort dataset independent of", flush=True)
+    print("  taxonomic resolution. Changing aggregation level cannot recover signal.", flush=True)
+else:
+    n_ok = sum(levels_batch_wins)
+    print(f"  Batch R² > Response R² at {n_ok}/3 taxonomic levels. See table.", flush=True)
+
+print(f"\n[{time.strftime('%H:%M:%S')}] Phase 3c complete. All outputs in {OUT_DIR}/",
+      flush=True)
