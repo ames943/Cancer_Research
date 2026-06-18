@@ -2,6 +2,13 @@
 *.k2d
 *.kmer_distrib
 *.tar.gz
+inspect.txt
+ktaxonomy.tsv
+seqid2taxid.map
+
+# Kraken2 per-read output (large; reports in kraken_reports/ are sufficient)
+results/kraken_outputs/
+results/trimmed/
 
 # Raw sequencing data
 raw_data/
