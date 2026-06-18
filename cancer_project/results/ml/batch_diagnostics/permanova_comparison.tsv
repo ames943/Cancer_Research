@@ -1,6 +1,8 @@
-analysis	cohort	n	factor	R2	F_stat	p_value	n_perms	note	partial_R2	cohens_f2	effect_size
-cohort1_only_n39	PRJNA397906 (Frankel 2017) only	39	response	0.0267	1.0168	0.4184	999	Within single cohort; response signal weak but 2.4x larger than in pooled n=79	0.0267	0.027432	small
-pooled_n79	PRJNA397906 (Frankel) + SRR11413xxx (cohort2)	79	response	0.011	0.8564	0.6947	999	Pooled 2-cohort; batch noise dilutes response signal from 2.7% -> 1.1%	0.011	0.011122	negligible
-pooled_n79	PRJNA397906 (Frankel) + SRR11413xxx (cohort2)	79	batch	0.0849	7.1455	0.001	999	Batch explains 8.5% of variance (7.7x more than response signal); p<0.001	0.0849	0.092777	small
-pooled_n118	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) — 3 cohorts	118	response	0.0068	0.7931	0.8468	999	3-cohort pooled; no batch correction	0.0068	0.006847	negligible
-pooled_n118	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) — 3 cohorts	118	batch	0.0768	4.7815	0.0	999	3-cohort batch effect (3 groups); p=0.000	0.0768	0.083189	small
+analysis	cohort	n	factor	R2	F_stat	p_value	n_perms	note
+cohort1_only_n39	PRJNA397906 (Frankel 2017) only	39	response	0.0267	1.0168	0.4184	999	Within single cohort; response signal weak but 2.4x larger than in pooled n=79
+pooled_n79	PRJNA397906 (Frankel) + SRR11413xxx (cohort2)	79	response	0.011	0.8564	0.6947	999	Pooled 2-cohort; batch noise dilutes response signal from 2.7% -> 1.1%
+pooled_n79	PRJNA397906 (Frankel) + SRR11413xxx (cohort2)	79	batch	0.0849	7.1455	0.001	999	Batch explains 8.5% of variance (7.7x more than response signal); p<0.001
+pooled_n118	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) — 3 cohorts	118	response	0.0068	0.7931	0.8468	999	3-cohort pooled; no batch correction
+pooled_n118	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) — 3 cohorts	118	batch	0.0768	4.7815	0.0	999	3-cohort batch effect (3 groups); p=0.000
+pooled_n283	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) + PRJEB43119 (Lee 2022) — 4 cohorts	283	response	0.003876	1.0934	0.268	999	4-cohort pooled; response R² continues monotonic decline
+pooled_n283	SRR5930 (Frankel) + SRR11413 + SRR6000 (Matson) + PRJEB43119 (Lee 2022) — 4 cohorts	283	batch	0.10563	10.9839	0.001	999	4-cohort batch effect (4 groups); batch >> signal
