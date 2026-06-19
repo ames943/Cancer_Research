@@ -1,0 +1,4 @@
+model	observed_auc	perm_mean	perm_std	p_value	n_perms
+ElasticNet	0.5695	0.5018	0.0441	0.0891	100
+RandomForest	0.4783	0.4949	0.0428	0.6733	100
+XGBoost	0.546	0.4956	0.0412	0.1287	100
